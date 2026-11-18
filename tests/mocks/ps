@@ -1,0 +1,26 @@
+#!/bin/zsh -f
+# Mock ps over $MOCK_DIR/procs (TSV: pid uid pcpu rss lstart path args).
+#   ps -A -o pid=,uid=,pcpu=,rss=,lstart=,comm=
+#   ps -p PID -o lstart= | -o args= | -o comm=
+setopt extended_glob
+print -r -- "$*" >> $MOCK_DIR/ps.log
+F=$MOCK_DIR/procs
+[[ -f $F ]] || exit 1
+if [[ $1 == -A ]]; then
+  while IFS=$'\t' read -r pid uid pcpu rss lstart path args; do
+    printf '%5s %5s %5s %6s %s     %s\n' $pid $uid $pcpu $rss "$lstart" "$path"
+  done < $F
+  exit 0
+fi
+[[ $1 == -p && $3 == -o ]] || exit 2
+while IFS=$'\t' read -r pid uid pcpu rss lstart path args; do
+  [[ $pid == $2 ]] || continue
+  case $4 in
+    lstart=) print -r -- "$lstart" ;;
+    args=)   print -r -- "$args" ;;
+    comm=)   print -r -- "$path" ;;
+    *) exit 2 ;;
+  esac
+  exit 0
+done < $F
+exit 1
