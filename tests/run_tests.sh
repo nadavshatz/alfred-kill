@@ -81,7 +81,49 @@ check "no match → info item" eval '[[ $(titles zzzqqq) == "No process matches 
 check "empty query → hint item first" eval '[[ $(titles | head -1) == "Kill a process" ]]'
 check "processes are sorted by CPU for an empty query" eval '[[ $(titles | sed -n 2p) == "Google Chrome" ]]'
 
-# ==== TASK2 ====
+# --- action ----------------------------------------------------------------------
+act() { $WF/action.sh "$1" }
+klog() { cat $MOCK_DIR/kill.log 2>/dev/null }
+alive_in_fixture() { grep -q "^$1	" $MOCK_DIR/procs && [[ ! -e $MOCK_DIR/dead_$1 ]] }
+
+fixtures
+msg=$(act "term 5000@$TOK2")
+check "term: quits a process that exits on SIGTERM" eval '[[ $msg == "Quit node (PID 5000)" ]]'
+check "term: no SIGKILL when SIGTERM was enough" eval '[[ $(klog) == "TERM 5000" ]]'
+
+fixtures; touch $MOCK_DIR/stubborn_5000
+msg=$(act "term 5000@$TOK2")
+check "term: stubborn process gets SIGKILL after the wait" eval '[[ $(klog) == $'"'"'TERM 5000\nKILL 5000'"'"' && $msg == "Force-killed node (PID 5000): it did not quit in time" ]]'
+
+fixtures
+msg=$(act "force 5001@$TOK2")
+check "force: SIGKILL right away" eval '[[ $(klog) == "KILL 5001" && $msg == "Force-killed node (PID 5001)" ]]'
+
+fixtures
+msg=$(act "term 5000@${T1// /_}")
+check "PID reused (start time differs) → refused, nothing signalled" \
+  eval '[[ $msg == "PID 5000 is now a different process: nothing was killed" && -z $(klog) ]]'
+msg=$(act "term 7777@$TOK2")
+check "process already gone → reported, nothing signalled" eval '[[ $msg == "PID 7777 has already exited" && -z $(klog) ]]'
+msg=$(act "term 300@${T1// /_}")
+check "root process → refused" eval '[[ $msg == "syslogd (PID 300) is owned by root: not killed" && -z $(klog) ]]'
+for bad_arg in "term 1@${T1// /_}" "term abc" "term 5000" "rm -rf /" "term -1@x" "term 5000@x;id" "force 0@$TOK2" ""; do
+  rm -f $MOCK_DIR/kill.log
+  act "$bad_arg" >/dev/null
+  [[ -z $(klog) ]] || bad "malformed or protected arg '$bad_arg' signalled something"
+done
+ok "malformed / protected args never signal"
+
+fixtures; touch $MOCK_DIR/stubborn_4201
+msg=$(act "all 4200@$TOK2")
+check "all: every process with that path is quit" eval '! alive_in_fixture 4200 && ! alive_in_fixture 4201'
+check "all: stubborn one force-killed, others only TERM" \
+  eval '[[ $(klog | sort | tr "\n" "|") == "KILL 4201|TERM 4200|TERM 4201|" ]]'
+check "all: main Chrome process untouched" eval 'alive_in_fixture 4100'
+check "all: summary message" eval '[[ $msg == "Quit 2 × Google Chrome Helper (1 force-killed)" ]]'
+fixtures
+msg=$(act "all 4200@${T1// /_}")
+check "all: stale token refused" eval '[[ $msg == "PID 4200 is now a different process: nothing was killed" && -z $(klog) ]]'
 
 print "\n$pass passed, $fail failed"
 (( fail == 0 ))

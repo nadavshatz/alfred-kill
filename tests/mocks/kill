@@ -6,11 +6,11 @@ setopt extended_glob
 sig=${1#-} pid=$2
 [[ $# == 2 && $pid == <-> ]] || { print -u2 "mock kill: bad args $*"; exit 2 }
 F=$MOCK_DIR/procs
-alive() { grep -q "^$pid	" $F 2>/dev/null }
+alive() { grep -q "^$pid	" $F 2>/dev/null && [[ ! -e $MOCK_DIR/dead_$pid ]] }
 alive || exit 1
 [[ $sig == 0 ]] && exit 0
 print -r -- "$sig $pid" >> $MOCK_DIR/kill.log
 if [[ $sig == KILL || ( $sig == TERM && ! -e $MOCK_DIR/stubborn_$pid ) ]]; then
-  grep -v "^$pid	" $F > $F.tmp; mv -f $F.tmp $F
+  touch $MOCK_DIR/dead_$pid
 fi
 exit 0
