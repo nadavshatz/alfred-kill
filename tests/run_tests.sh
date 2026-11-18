@@ -125,5 +125,26 @@ fixtures
 msg=$(act "all 4200@${T1// /_}")
 check "all: stale token refused" eval '[[ $msg == "PID 4200 is now a different process: nothing was killed" && -z $(klog) ]]'
 
+# --- updates ---------------------------------------------------------------------
+fixtures
+wait_for() { integer i; for (( i = 0; i < 60; i++ )); do eval "$1" && return 0; sleep 0.1; done; return 1 }
+UPD=$alfred_workflow_cache/update
+zsh $ROOT/scripts/build.sh 9.0.0 >/dev/null
+mkdir -p $MOCK_DIR/releases/v9.0.0
+mv -f $ROOT/dist/Alfred-Kill-9.0.0.alfredworkflow $ROOT/dist/Alfred-Kill-9.0.0.alfredworkflow.sha256 $MOCK_DIR/releases/v9.0.0/
+print 9.0.0 > $MOCK_DIR/latest
+update_mode=notify filter >/dev/null
+check "empty query starts a background update check" wait_for '[[ $(cat $UPD 2>/dev/null) == "9.0.0 "* ]]'
+check "update announced on empty query" eval '[[ $(update_mode=notify titles) == *"Update available: Alfred Kill 9.0.0"* ]]'
+check "update item routes to action.sh" eval '[[ $(update_mode=notify filter | jq -r ".items[-1].arg") == "update_install 9.0.0" ]]'
+check "no update item while searching" eval '[[ $(update_mode=notify titles chrome) != *"Update available"* ]]'
+rm -f $MOCK_DIR/open.log
+check "verified update opens in Alfred" \
+  eval '[[ $(act "update_install 9.0.0") == "Opening Alfred Kill 9.0.0. Confirm the update in Alfred" && $(<$MOCK_DIR/open.log) == $alfred_workflow_cache/Alfred-Kill-9.0.0.alfredworkflow ]]'
+print "0000000000000000000000000000000000000000000000000000000000000000  x" > $MOCK_DIR/releases/v9.0.0/Alfred-Kill-9.0.0.alfredworkflow.sha256
+rm -f $MOCK_DIR/open.log
+check "tampered update rejected" eval '[[ $(act "update_install 9.0.0") == "Update not installed: checksum mismatch" && ! -e $MOCK_DIR/open.log ]]'
+check "update curl calls ignore ~/.curlrc" eval '[[ $(head -1 $MOCK_DIR/curl.log) == -q ]]'
+
 print "\n$pass passed, $fail failed"
 (( fail == 0 ))
