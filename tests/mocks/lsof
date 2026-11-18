@@ -1,0 +1,12 @@
+#!/bin/zsh -f
+# Mock lsof -n -P -p PID -a -d txt -Fn → the real binary: $MOCK_DIR/exe_PID,
+# else the path column of $MOCK_DIR/procs.
+print -r -- "$*" >> $MOCK_DIR/lsof.log
+pid=${${(M)@:#<->}[1]}
+[[ -n $pid && ! -e $MOCK_DIR/dead_$pid ]] || exit 1
+if [[ -f $MOCK_DIR/exe_$pid ]]; then exe=$(<$MOCK_DIR/exe_$pid)
+else
+  exe=$(while IFS=$'\t' read -r p u c r l path a; do [[ $p == $pid ]] && print -r -- $path; done < $MOCK_DIR/procs)
+  [[ -n $exe ]] || exit 1
+fi
+print -r -- "p$pid"; print ftxt; print -r -- "n$exe"; print ftxt; print n/usr/lib/dyld

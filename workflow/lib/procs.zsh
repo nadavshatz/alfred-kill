@@ -10,8 +10,8 @@ typeset -ga PROCS=()
 list_procs() {
   PROCS=()
   local line
-  for line in ${(f)"$($PS -A -o pid=,uid=,pcpu=,rss=,lstart=,comm= 2>/dev/null)"}; do
-    [[ $line == (#b)[[:space:]]#(<->)[[:space:]]##(<->)[[:space:]]##([0-9.,]##)[[:space:]]##(<->)[[:space:]]##([A-Z][a-z][a-z][[:space:]]##[A-Z][a-z][a-z][[:space:]]##[0-9]##[[:space:]]##[0-9:]##[[:space:]]##[0-9](#c4))[[:space:]]##(*) ]] || continue
+  for line in ${(f)"$(ps_c -A -o pid=,uid=,pcpu=,rss=,lstart=,comm= 2>/dev/null)"}; do
+    [[ $line == (#b)[[:space:]]#(<->)[[:space:]]##(-#<->)[[:space:]]##([0-9.,]##)[[:space:]]##(<->)[[:space:]]##([A-Z][a-z][a-z][[:space:]]##[A-Z][a-z][a-z][[:space:]]##[0-9]##[[:space:]]##[0-9:]##[[:space:]]##[0-9](#c4))[[:space:]]##(*) ]] || continue
     PROCS+=("$match[1]"$'\t'"$match[2]"$'\t'"${match[3]/,/.}"$'\t'"$match[4]"$'\t'"${${match[5]//[[:space:]]##/_}%%_#}"$'\t'"$match[6]")
   done
 }
@@ -23,7 +23,7 @@ start_token() { print -r -- ${${1//[[:space:]]##/_}%%_#} }
 current_token() {
   REPLY=
   local s
-  s=$($PS -p $1 -o lstart= 2>/dev/null) || return 1
+  s=$(ps_c -p $1 -o lstart= 2>/dev/null) || return 1
   [[ -n ${s//[[:space:]]/} ]] || return 1
   REPLY=$(start_token "${s##[[:space:]]#}")
 }
@@ -32,12 +32,12 @@ current_token() {
 proc_path() {
   REPLY=
   local p
-  p=$($PS -p $1 -o comm= 2>/dev/null) || return 1
+  p=$(ps_c -p $1 -o comm= 2>/dev/null) || return 1
   REPLY=${${p##[[:space:]]#}%%[[:space:]]#}
   [[ -n $REPLY ]]
 }
 
-proc_args() { $PS -p $1 -o args= 2>/dev/null }
+proc_args() { ps_c -p $1 -o args= 2>/dev/null }
 
 # protected PID: never offered or signalled.
 protected() { (( $1 <= 1 || $1 == $$ || $1 == PPID )) }
@@ -57,4 +57,29 @@ fmt_mem() {
 app_icon() {
   if [[ $1 == *.app/* ]]; then print -r -- "fileicon:${1%.app/*}.app"
   else print process; fi
+}
+
+# ps_c ARGS…: ps with a fixed C locale, so the start time and CPU columns
+# always have the format list_procs parses (LC_ALL=de_DE prints "Di. 10 Nov.").
+ps_c() { LC_ALL=C $PS "$@" }
+
+# all_args → ARGS[pid]=command line, from a single ps call.
+typeset -gA ARGS=()
+all_args() {
+  ARGS=()
+  local line
+  for line in ${(f)"$(ps_c -A -o pid=,args= 2>/dev/null)"}; do
+    [[ $line == (#b)[[:space:]]#(<->)[[:space:]]##(*) ]] && ARGS[$match[1]]=$match[2]
+  done
+}
+
+# real_exe PID → REPLY=the binary the process is actually running. `ps -o
+# comm=` shows argv[0], which any process can set; lsof's txt entry can't be.
+real_exe() {
+  REPLY=
+  local line
+  for line in ${(f)"$($LSOF -n -P -p $1 -a -d txt -Fn 2>/dev/null)"}; do
+    [[ $line == n/* ]] && { REPLY=${line#n}; return 0 }
+  done
+  return 1
 }

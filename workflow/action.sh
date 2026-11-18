@@ -80,14 +80,20 @@ case $verb in
       *) print "Could not kill $NAME (PID $PID)"; exit 1 ;;
     esac ;;
   all)
-    # Every process of this user running the same executable path. Each is
-    # signalled in parallel, then waited for.
+    # Every process of this user running the same binary. ps shows argv[0],
+    # which processes choose themselves, so the real binary of the target and
+    # of each candidate comes from lsof. Candidates are pre-filtered by name to
+    # keep the lsof calls few. Each is signalled in parallel, then waited for.
+    real_exe $PID || { print "Could not resolve the program of $NAME (PID $PID): nothing was killed"; exit 1 }
+    local bin=$REPLY
     local -a pids=() toks=()
     local r; local -a f
     for r in $PROCS; do
       f=("${(@ps:\t:)r}")
-      [[ $f[6] == $REC_EXE && $f[2] == $MY_UID ]] || continue
+      [[ $f[2] == $MY_UID ]] || continue
+      [[ ${f[6]:t} == (${(b)NAME}|${(b)bin:t}) ]] || continue
       protected $f[1] && continue
+      real_exe $f[1] && [[ $REPLY == $bin ]] || continue
       pids+=($f[1]) toks+=($f[5])
     done
     integer n=0 forced=0 failed=0 i

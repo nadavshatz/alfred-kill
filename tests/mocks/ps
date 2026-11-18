@@ -4,8 +4,16 @@
 #   ps -p PID -o lstart= | -o args= | -o comm=
 setopt extended_glob
 print -r -- "$*" >> $MOCK_DIR/ps.log
+print -r -- "${LC_ALL-unset}" >> $MOCK_DIR/ps_locale.log
 F=$MOCK_DIR/procs
 [[ -f $F ]] || exit 1
+if [[ $1 == -A && $3 == pid=,args= ]]; then
+  while IFS=$'\t' read -r pid uid pcpu rss lstart path args; do
+    [[ -e $MOCK_DIR/dead_$pid ]] && continue
+    printf '%5s %s\n' $pid "$args"
+  done < $F
+  exit 0
+fi
 if [[ $1 == -A ]]; then
   while IFS=$'\t' read -r pid uid pcpu rss lstart path args; do
     [[ -e $MOCK_DIR/dead_$pid ]] && continue
@@ -18,7 +26,7 @@ while IFS=$'\t' read -r pid uid pcpu rss lstart path args; do
   [[ $pid == $2 ]] || continue
   [[ -e $MOCK_DIR/dead_$pid ]] && exit 1
   case $4 in
-    lstart=) print -r -- "$lstart" ;;
+    lstart=) if [[ -f $MOCK_DIR/newstart_$pid ]]; then cat $MOCK_DIR/newstart_$pid; else print -r -- "$lstart   "; fi ;;
     args=)   print -r -- "$args" ;;
     comm=)   print -r -- "$path" ;;
     *) exit 2 ;;

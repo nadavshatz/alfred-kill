@@ -13,6 +13,7 @@ typeset -r KP_WF_DIR="${${(%):-%x}:A:h:h}"          # .../workflow
 
 typeset -r PS="${KP_PS:-/bin/ps}"
 typeset -r KILL="${KP_KILL:-/bin/kill}"
+typeset -r LSOF="${KP_LSOF:-/usr/sbin/lsof}"
 typeset -ri MY_UID="${KP_UID:-$UID}"
 typeset -ri WAIT_STEPS="${KP_WAIT_STEPS:-20}"     # × 0.1s before SIGKILL
 

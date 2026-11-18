@@ -11,7 +11,7 @@ SANDBOX=$(mktemp -d)
 trap 'rm -rf $SANDBOX' EXIT
 
 export MOCK_DIR=$SANDBOX/mock
-export KP_PS=$ROOT/tests/mocks/ps KP_KILL=$ROOT/tests/mocks/kill KP_UID=501 KP_WAIT_STEPS=3
+export KP_PS=$ROOT/tests/mocks/ps KP_KILL=$ROOT/tests/mocks/kill KP_LSOF=$ROOT/tests/mocks/lsof KP_UID=501 KP_WAIT_STEPS=3
 export KP_CURL=$ROOT/tests/mocks/curl KP_OPEN=$ROOT/tests/mocks/open
 export alfred_workflow_cache=$SANDBOX/cache alfred_workflow_data=$SANDBOX/data
 export alfred_workflow_version=1.0.0 update_mode=off
@@ -124,6 +124,56 @@ check "all: summary message" eval '[[ $msg == "Quit 2 × Google Chrome Helper (1
 fixtures
 msg=$(act "all 4200@${T1// /_}")
 check "all: stale token refused" eval '[[ $msg == "PID 4200 is now a different process: nothing was killed" && -z $(klog) ]]'
+
+# --- review fixes ----------------------------------------------------------------
+# ⌘ all matches the real binary, not argv[0]
+fixtures
+print -r -- "5002	501	0.0	2048	$T2	node	node /Users/me/third/x.js" >> $MOCK_DIR/procs
+print -r -- "5003	501	0.0	2048	$T2	node	node /Users/me/fourth/y.js" >> $MOCK_DIR/procs
+print /opt/homebrew/bin/node > $MOCK_DIR/exe_5002
+print /Users/me/.nvm/versions/node/v20/bin/node > $MOCK_DIR/exe_5003
+msg=$(act "all 5002@$TOK2")
+check "⌘ all: same argv[0] but different binary is left alone" eval 'alive_in_fixture 5003'
+check "⌘ all: every process running the same binary is quit" \
+  eval '! alive_in_fixture 5000 && ! alive_in_fixture 5001 && ! alive_in_fixture 5002'
+check "⌘ all: summary counts real matches" eval '[[ $msg == "Quit 3 × node" ]]'
+
+# root process running the same binary is never touched by ⌘ all
+fixtures
+print -r -- "4300	0	0.0	1024	$T2	/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper	helper" >> $MOCK_DIR/procs
+act "all 4200@$TOK2" >/dev/null
+check "⌘ all: root process with the same path untouched" eval 'alive_in_fixture 4300 && [[ $(klog) != *4300* ]]'
+
+# PID reused while waiting for SIGTERM → no SIGKILL
+fixtures; touch $MOCK_DIR/stubborn_5000 $MOCK_DIR/reuse_5000
+act "term 5000@$TOK2" >/dev/null
+check "PID reused during the wait: SIGKILL withheld" eval '[[ $(klog) == "TERM 5000" ]]'
+
+# real ps padding: single-digit day with two spaces
+fixtures
+T3='Tue Nov  3 08:00:00 2026'
+print -r -- "5100	501	0.0	2048	$T3	/usr/bin/python3	python3 app.py" >> $MOCK_DIR/procs
+tok=$(filter python3 | jq -r '.items[0].arg')
+check "single-digit day parsed into a token" eval '[[ $tok == "term 5100@Tue_Nov_3_08:00:00_2026" ]]'
+check "token from the list is accepted by the action" eval '[[ $(act "$tok") == "Quit python3 (PID 5100)" ]]'
+
+# locale: ps always runs with LC_ALL=C
+fixtures
+LC_ALL=de_DE.UTF-8 filter chrome >/dev/null
+LC_ALL=de_DE.UTF-8 act "term 5000@$TOK2" >/dev/null
+check "ps always runs under LC_ALL=C" eval '[[ $(sort -u $MOCK_DIR/ps_locale.log) == C ]]'
+
+# name:arg uses one ps call for all command lines
+fixtures
+filter 'a:zzzq' >/dev/null
+check "name:arg: no per-process ps calls" eval '[[ $(grep -c -- "^-p" $MOCK_DIR/ps.log) == 0 ]]'
+check "name:arg: one ps -A args listing" eval '[[ $(grep -c "pid=,args=" $MOCK_DIR/ps.log) == 1 ]]'
+
+# processes owned by uid -2 (nobody) are listed, not dropped
+fixtures
+print -r -- "7000	-2	0.0	1024	$T2	/usr/libexec/companion	companion" >> $MOCK_DIR/procs
+check "nobody-owned process listed, not actionable" \
+  eval '[[ $(filter companion | jq -r ".items[0] | [.title,.valid] | @tsv") == "companion	false" ]]'
 
 # --- updates ---------------------------------------------------------------------
 fixtures

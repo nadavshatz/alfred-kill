@@ -38,13 +38,14 @@ score() {
 matched_arg() {
   REPLY=
   local w
-  for w in ${(z)"$(proc_args $1)"}; do
+  for w in ${(z)${ARGS[$1]-}}; do
     [[ ${(L)w} == *${AQ}* ]] && { REPLY=$w; return 0 }
   done
   return 1
 }
 
 list_procs
+[[ -n $AQ ]] && all_args
 typeset -a ranked=()
 typeset r pid uid pcpu rss tok exe name
 typeset -a f
